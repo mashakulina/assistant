@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Assistant
+Comment=Программа Ассистент для Steam Deck
+Exec=sh -c 'if curl -Is https://github.com | head -1 | grep 200 > /dev/null; then cd /tmp && curl -S -s -LO --connect-timeout 60 https://github.com/mashakulina/assistant/raw/refs/heads/main/assistant.tar.gz && tar -xf assistant.tar.gz && bash assistant.sh || echo "Ошибка выполнения!"; echo "Нажмите Enter для выхода..."; read; else echo "Нет доступа к GitHub!"; echo "Нажмите Enter для выхода..."; read; fi'
+Icon=utilities-terminal
+Terminal=true
+Type=Application
+Categories=Utility;Internet;
