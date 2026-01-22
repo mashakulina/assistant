@@ -5,13 +5,13 @@
 Так же через этот же скрипт можно удалить программу
 
 ## Установка
-1. Скачать файл Assistant.desktop
+1. Скачать файл [Assistant.desktop](https://github.com/mashakulina/assistant/blob/main/Assistant.desktop)
 2. Запустить его
 3. В открывшемся терминале ввести `sudo` пароль
 4. Дождаться окончания установки
 
 ## Удаление
-1. Скачать файл Assistant.desktop
+1. Скачать файл [Assistant.desktop](https://github.com/mashakulina/assistant/blob/main/Assistant.desktop)
 2. Запустить его
 3. В открывшемся терминале ввести sudo пароль
 4. Когда дойдет до удаления самой программы `Вы действительно хотите удалить Ассистент?` нужно обязательно ввести `y` и нажать `Enter`. Иначе программа не удалится
