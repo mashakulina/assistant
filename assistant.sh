@@ -20,6 +20,80 @@ ask_confirmation() {
     done
 }
 
+# Функция для изменения pacman.conf
+modify_pacman_conf() {
+    local action="$1"  # "enable" или "disable"
+
+    echo "Изменяем pacman.conf ($action)..."
+
+    if [ "$action" = "enable" ]; then
+        # Заменяем Required DatabaseOptional на TrustAll для установки
+        run_sudo sed -i 's/Required DatabaseOptional/TrustAll/g' /etc/pacman.conf
+        echo "Режим установки: TrustAll активирован в pacman.conf"
+    else
+        # Заменяем обратно TrustAll на Required DatabaseOptional
+        run_sudo sed -i 's/TrustAll/Required DatabaseOptional/g' /etc/pacman.conf
+        echo "Режим удаления: Required DatabaseOptional восстановлен в pacman.conf"
+    fi
+}
+
+# Функция для создания сервиса assistant-resume
+create_assistant_resume_service() {
+    echo "Создаем сервис assistant-resume..."
+
+    # Создаем файл сервиса
+    cat << EOF | run_sudo tee /etc/systemd/system/assistant-resume.service > /dev/null
+[Unit]
+Description=Restart Assistant after sleep
+After=sleep.target
+After=suspend.target
+After=hibernate.target
+After=hybrid-sleep.target
+Requires=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl restart assistant.service
+
+[Install]
+WantedBy=sleep.target
+WantedBy=suspend.target
+WantedBy=hybrid-sleep.target
+WantedBy=hibernate.target
+EOF
+
+    # Даем правильные права на файл
+    run_sudo chmod 644 /etc/systemd/system/assistant-resume.service
+
+    # Включаем и запускаем сервис
+    run_sudo systemctl daemon-reload
+    run_sudo systemctl enable assistant-resume.service
+
+    if [ $? -eq 0 ]; then
+        echo "Сервис assistant-resume успешно создан и запущен"
+    else
+        echo "Предупреждение: не удалось запустить сервис assistant-resume"
+    fi
+}
+
+# Функция для удаления сервиса assistant-resume
+remove_assistant_resume_service() {
+    echo "Удаляем сервис assistant-resume..."
+
+    # Останавливаем и отключаем сервис
+    run_sudo systemctl stop assistant-resume.service 2>/dev/null
+    run_sudo systemctl disable assistant-resume.service 2>/dev/null
+
+    # Удаляем файл сервиса
+    if [ -f "/etc/systemd/system/assistant-resume.service" ]; then
+        run_sudo rm -f /etc/systemd/system/assistant-resume.service
+        echo "Файл сервиса assistant-resume удален"
+    fi
+
+    # Перезагружаем systemd
+    run_sudo systemctl daemon-reload
+}
+
 # Запрашиваем sudo пароль и проверяем его правильность
 while true; do
     echo "Введите ваш sudo пароль:"
@@ -56,6 +130,12 @@ if [ -d "/opt/assistant" ]; then
     if [ $? -ne 0 ]; then
         echo "Предупреждение: Не удалось отключить steamos-readonly"
     fi
+
+    # Восстанавливаем оригинальные настройки pacman.conf
+    modify_pacman_conf "disable"
+
+    # Удаляем сервис assistant-resume
+    remove_assistant_resume_service
 
     # Удаляем gtk2
     echo "Удаляем gtk2..."
@@ -208,12 +288,17 @@ else
             echo "Продолжаем установку пакетов..."
         else
             echo "Установка прервана пользователем."
+            # Восстанавливаем pacman.conf перед выходом
+            modify_pacman_conf "disable"
             # Включаем защиту от записи перед выходом
             run_sudo steamos-readonly enable
             SUDO_PASSWORD=""
             exit 1
         fi
     fi
+
+    # Меняем настройки pacman.conf для установки
+    modify_pacman_conf "enable"
 
     # Инициализируем ключи pacman
     echo "Инициализируем ключи pacman..."
@@ -233,6 +318,12 @@ else
     else
         echo "Ошибка при установке gtk2."
     fi
+
+    # Восстанавливаем оригинальные настройки pacman.conf после установки
+    modify_pacman_conf "disable"
+
+    # Создаем сервис assistant-resume
+    create_assistant_resume_service
 
     # Копируем файл assistant.desktop с рабочего стола в папку приложений
     DESKTOP_SOURCE="/home/deck/Desktop/assistant.desktop"
@@ -276,6 +367,7 @@ else
     fi
 
     echo "Установка завершена! Ярлык создан на рабочем столе и в меню приложений. В меню пуск находится в разделе Интернет"
+    echo "Сервис assistant-resume создан для автоматического перезапуска после сна"
 fi
 
 # Очищаем переменную с паролем из памяти
