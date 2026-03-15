@@ -217,7 +217,7 @@ else
         else
             # Скачиваем новый файл
             echo "Скачиваем новый файл..."
-            DOWNLOAD_URL="https://xn--80akicokc0aablc.xn--p1ai/%D1%81%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C/Download/1378"
+            DOWNLOAD_URL="https://lk2.мойассистент.рф/WebApi/Platforms/Download/1378"
 
             wget "$DOWNLOAD_URL" -O "$DOWNLOAD_PATH"
             if [ $? -ne 0 ]; then
@@ -237,7 +237,7 @@ else
     else
         # Скачиваем файл
         echo "Скачиваем файл..."
-        DOWNLOAD_URL="https://xn--80akicokc0aablc.xn--p1ai/%D1%81%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C/Download/1378"
+        DOWNLOAD_URL="https://lk2.мойассистент.рф/WebApi/Platforms/Download/1378"
 
         wget "$DOWNLOAD_URL" -O "$DOWNLOAD_PATH"
         if [ $? -ne 0 ]; then
