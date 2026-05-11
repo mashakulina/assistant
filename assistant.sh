@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Функция для запроса подтверждения с правильной обработкой
+# Функция для запроса подтверждения с правильной обработкой (пустой ввод = да)
 ask_confirmation() {
     local prompt="$1"
 
@@ -12,6 +12,29 @@ ask_confirmation() {
                 ;;
             [Nn]|No|no|NO)
                 return 1  # Нет
+                ;;
+            *)
+                echo "Пожалуйста, введите 'y' (да) или 'n' (нет)."
+                ;;
+        esac
+    done
+}
+
+# Подтверждение удаления: только явный y/n, пустой ввод не считается согласием
+ask_confirm_delete() {
+    local prompt="$1"
+
+    while true; do
+        read -p "$prompt" -r response
+        case $response in
+            [Yy]|Yes|yes|YES)
+                return 0
+                ;;
+            [Nn]|No|no|NO)
+                return 1
+                ;;
+            "")
+                echo "Введите явно y (да) или n (нет)."
                 ;;
             *)
                 echo "Пожалуйста, введите 'y' (да) или 'n' (нет)."
@@ -41,8 +64,12 @@ modify_pacman_conf() {
 create_assistant_resume_service() {
     echo "Создаем сервис assistant-resume..."
 
-    # Создаем файл сервиса
-    cat << EOF | run_sudo tee /etc/systemd/system/assistant-resume.service > /dev/null
+    run_sudo mkdir -p /etc/systemd/system
+
+    # Пишем во временный файл: pipe в run_sudo tee теряет heredoc (stdin уходит только на пароль sudo -S).
+    local svc_tmp
+    svc_tmp="$(mktemp)"
+    cat << 'UNITEOF' > "$svc_tmp"
 [Unit]
 Description=Restart Assistant after sleep
 After=sleep.target
@@ -60,7 +87,9 @@ WantedBy=sleep.target
 WantedBy=suspend.target
 WantedBy=hybrid-sleep.target
 WantedBy=hibernate.target
-EOF
+UNITEOF
+    run_sudo cp "$svc_tmp" /etc/systemd/system/assistant-resume.service
+    rm -f "$svc_tmp"
 
     # Даем правильные права на файл
     run_sudo chmod 644 /etc/systemd/system/assistant-resume.service
@@ -120,9 +149,45 @@ run_sudo() {
     echo "$SUDO_PASSWORD" | sudo -S "$@"
 }
 
-# Проверяем наличие папки /opt/assistant
-if [ -d "/opt/assistant" ]; then
-    echo "Программа Assistant обнаружена. Выполняем удаление..."
+# Отчёт по типовым файлам Assistant; возврат 0 — что-то найдено, 1 — ничего
+check_assistant_artifacts() {
+    local found=0
+
+    echo "=== Проверка файлов Assistant ==="
+    if [ -d "/opt/assistant" ]; then
+        echo "  Каталог программы: есть (/opt/assistant)"
+        found=1
+    else
+        echo "  Каталог программы: нет (/opt/assistant)"
+    fi
+    if [ -f "/etc/systemd/system/assistant-resume.service" ]; then
+        echo "  Сервис assistant-resume: есть (/etc/systemd/system/assistant-resume.service)"
+        found=1
+    else
+        echo "  Сервис assistant-resume: нет"
+    fi
+    if [ -f "/home/deck/.local/share/applications/assistant.desktop" ]; then
+        echo "  Ярлык в меню: есть (~/.local/share/applications/assistant.desktop)"
+        found=1
+    else
+        echo "  Ярлык в меню: нет"
+    fi
+    if [ -f "/home/deck/Downloads/assistant.run" ]; then
+        echo "  Установщик: есть (~/Downloads/assistant.run)"
+        found=1
+    else
+        echo "  Установщик: нет (~/Downloads/assistant.run)"
+    fi
+    echo "================================="
+
+    if [ "$found" -eq 0 ]; then
+        return 1
+    fi
+    return 0
+}
+
+remove_assistant_full() {
+    echo "Программа Assistant: выполняем удаление..."
 
     # Отключаем защиту от записи для удаления
     echo "Отключаем steamos-readonly..."
@@ -203,9 +268,10 @@ if [ -d "/opt/assistant" ]; then
     fi
 
     echo "Удаление завершено!"
+}
 
-else
-    echo "Программа Assistant не установлена. Выполняем установку..."
+install_assistant_full() {
+    echo "Программа Assistant: выполняем установку..."
 
     # Проверяем наличие файла assistant.run в папке Downloads
     DOWNLOAD_PATH="/home/deck/Downloads/assistant.run"
@@ -368,6 +434,80 @@ else
 
     echo "Установка завершена! Ярлык создан на рабочем столе и в меню приложений. В меню пуск находится в разделе Интернет"
     echo "Сервис assistant-resume создан для автоматического перезапуска после сна"
+}
+
+HAS_OPT=0
+HAS_SVC=0
+[ -d "/opt/assistant" ] && HAS_OPT=1
+[ -f "/etc/systemd/system/assistant-resume.service" ] && HAS_SVC=1
+
+if [ "$HAS_OPT" -eq 1 ] && [ "$HAS_SVC" -eq 1 ]; then
+    echo "Программа Assistant и сервис assistant-resume обнаружены."
+    if ask_confirm_delete "Удалить программу Assistant? (y/n): "; then
+        remove_assistant_full
+    else
+        echo "Выход без изменений."
+    fi
+elif [ "$HAS_OPT" -eq 1 ] && [ "$HAS_SVC" -eq 0 ]; then
+    echo "Программа в /opt/assistant есть, файл сервиса assistant-resume отсутствует."
+    while true; do
+        echo "Выберите действие:"
+        echo "  1) Проверить файлы"
+        echo "  2) Удалить программу"
+        read -r -p "Введите 1 или 2: " menu_choice
+        case "$menu_choice" in
+            1)
+                check_assistant_artifacts
+                if [ $? -ne 0 ]; then
+                    echo "Следов Assistant не найдено. Доступна только установка программы."
+                    if ask_confirmation "Установить программу Assistant сейчас? (y/n): "; then
+                        install_assistant_full
+                    fi
+                    break
+                else
+                    echo "Восстанавливаем сервис assistant-resume..."
+                    create_assistant_resume_service
+                fi
+                break
+                ;;
+            2)
+                remove_assistant_full
+                break
+                ;;
+            *)
+                echo "Неверный выбор. Введите 1 или 2."
+                ;;
+        esac
+    done
+elif [ "$HAS_OPT" -eq 0 ] && [ "$HAS_SVC" -eq 1 ]; then
+    echo "Внимание: найден /etc/systemd/system/assistant-resume.service, каталог /opt/assistant отсутствует."
+    while true; do
+        echo "Выберите действие:"
+        echo "  1) Удалить только сервис assistant-resume"
+        echo "  2) Установить программу"
+        echo "  3) Выход"
+        read -r -p "Введите 1, 2 или 3: " orphan_choice
+        case "$orphan_choice" in
+            1)
+                remove_assistant_resume_service
+                echo "Готово."
+                break
+                ;;
+            2)
+                install_assistant_full
+                break
+                ;;
+            3)
+                echo "Выход без изменений."
+                break
+                ;;
+            *)
+                echo "Неверный выбор."
+                ;;
+        esac
+    done
+else
+    install_assistant_full
 fi
 
 # Очищаем переменную с паролем из памяти
